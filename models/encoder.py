@@ -27,8 +27,12 @@ class CustomEfficientNet(nn.Module):
         model.blocks = self.extract_block(base_model)
         return model
     
+    def forward(self, x):
+        features = self.model(x)
+        return features
+    
 if __name__ == "__main__":
-    model = CustomEfficientNet("efficientnet_b4", n_blocks=5).model
+    model = CustomEfficientNet("efficientnet_b4", n_blocks=5)
     input_tensor = torch.rand(1, 3, 224, 224)
     output = model(input_tensor)
     print(output)
