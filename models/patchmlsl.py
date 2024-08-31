@@ -11,7 +11,7 @@ HANDLED_ENCODER = ["efficientnet_b0",
                    "efficientnet_b6",
                    "efficientnet_b7"]
 
-class PatchMLSLA(nn.Module):
+class PatchMLSL(nn.Module):
     def __init__(self, model_name="efficientnet_b4", n_blocks=5, embed_dim=256, n_cls=20):
         super().__init__()
         # Extracting patch embeddings
@@ -19,9 +19,10 @@ class PatchMLSLA(nn.Module):
             self.encoder = CustomEfficientNet(model_name=model_name, n_blocks=n_blocks, embed_dim=embed_dim)
         else:
             print("Encoder {} is not handled. Try one of these encoders {}".format(model_name, HANDLED_ENCODER))
-        # TODO: CodeBook generation
+        # Generating the label codebook (row = n_cls, column = embed_dim)
+        self.codebook = CodebookLabel(n_cls=n_cls, embed_dim=embed_dim)
         # Extracting Image embeddings
-        self.cross_attn = PatchMLSLAAttention()
+        self.cross_attn = PatchMLSLAttention()
         # TODO: Shared Classifier
 
     def forward(self, patches):
@@ -32,16 +33,24 @@ class PatchMLSLA(nn.Module):
         patch_embs = self.encoder(patches)
         pass
 
-class PatchMLSLAAttention(nn.Module):
+class CodebookLabel(nn.Module):
+    def __init__(self,  n_cls=20, embed_dim=256):
+        super().__init__()
+        self.codebook = nn.Embedding(n_cls, embed_dim)
+    
+    def forward(self):
+        return self.codebook
+    
+class PatchMLSLAttention(nn.Module):
     def __init__(self):
         super().__init__()
         pass
 
-class PatchMLSLAMLP(nn.Module):
+class PatchMLSLMLP(nn.Module):
     def __init__(self):
         super().__init__()
         pass
 
 if __name__ == "__main__":
-    model = PatchMLSLA(model_name="efficientnet_b4", n_blocks=4, embed_dim=256, n_cls=10)
+    model = PatchMLSL(model_name="efficientnet_b4", n_blocks=4, embed_dim=256, n_cls=10)
     print(model)
