@@ -24,7 +24,8 @@ class PatchMLSL(nn.Module):
         # Extracting Image embeddings
         self.cross_attn = PatchMLSLAttention()
         self.mlp = PatchMLSLMLP(intermediate_dim, embed_dim)
-        # TODO: Shared Classifier
+        #Shared classifier
+        self.classifier = PatchMLSLClassifier(n_cls=n_cls)
 
     def forward(self, patches):
         """
@@ -37,7 +38,7 @@ class PatchMLSL(nn.Module):
 class CodebookLabel(nn.Module):
     def __init__(self,  n_cls=20, embed_dim=256):
         super().__init__()
-        self.codebook = nn.Embedding(n_cls, embed_dim)
+        self.codebook = nn.Parameter(torch.randn(n_cls, embed_dim))
     
     def forward(self):
         return self.codebook
@@ -65,6 +66,20 @@ class PatchMLSLMLP(nn.Module):
         hidden_state = nn.functional.relu(hidden_state)
         hidden_state = self.fc2(hidden_state)
         return hidden_state
+    
+class PatchMLSLClassifier(nn.Module):
+    def __init__(self, n_cls=20, embed_dim=256):
+        super().__init__()
+        self.cls_weights = nn.Parameter(torch.randn(n_cls, embed_dim))
+    
+    def forward(self, image_rep):
+        logits = torch.matmul(self.cls_weights, image_rep.transpose(1, 2))
+        # Apply softmax
+        logits = torch.softmax(logits, dim=-1)
+        # Extracting the diagonal
+        output = logits.diagonal(dim1=-2, dim2=-1)
+        return output
+        
 
 if __name__ == "__main__":
     model = PatchMLSL(model_name="efficientnet_b4", n_blocks=4, intermediate_dim=128, embed_dim=256, n_cls=10)
