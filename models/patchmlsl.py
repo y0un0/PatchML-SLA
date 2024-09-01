@@ -25,7 +25,7 @@ class PatchMLSL(nn.Module):
         self.cross_attn = PatchMLSLAttention()
         self.mlp = PatchMLSLMLP(intermediate_dim, embed_dim)
         #Shared classifier
-        self.classifier = PatchMLSLClassifier(n_cls=n_cls)
+        self.classifier = PatchMLSLClassifier(n_cls=n_cls, embed_dim=embed_dim)
 
     def forward(self, patches):
         """
