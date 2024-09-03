@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
+import random
 import matplotlib.pyplot as plt
 
 class MultiResolutionPatches:
@@ -19,21 +20,31 @@ class MultiResolutionPatches:
         # Go through each resolution level
         for r in range(self.num_resolutions):
             scale_factor = 1 / (self.downsample_ratio ** r)
-            downsampled_image = F.interpolate(image.unsqueeze, scale_factor=scale_factor, mode=self.interpolation)
+            downsampled_image = F.interpolate(image.unsqueeze(0), scale_factor=scale_factor, mode=self.interpolation).squeeze()
             # Extract patches at resolution level
             patches_at_dim = self.unfold(downsampled_image)
             # Reshape
-            batch_size, channel, _, _ = downsampled_image.size()
-            patches_at_dim = patches_at_dim.view(batch_size, channel, self.patch_size, self.patch_size, -1)
-            patches_at_dim = patches_at_dim.permute(0, 4, 1, 2, 3)
+            channel, _, _ = downsampled_image.size()
+            patches_at_dim = patches_at_dim.view(channel, self.patch_size, self.patch_size, -1)
+            patches_at_dim = patches_at_dim.permute(3, 0, 1, 2)
 
-            # TODO: Handle max number of patches
-            pass
+            # Choose a number of patches to sample if the image size is too big
+            if self.max_patches_per_res and self.max_patches_per_res > patches_at_dim.size(0):
+                rand_indices = random.sample(range(patches_at_dim.size(0)), self.max_patches_per_res)
+                patches_at_dim = patches_at_dim[rand_indices]
 
-    def __call__(self):
-        pass
+            patches.append(patches_at_dim)
+        patches = torch.cat(patches)
+        return patches
+
+    def __call__(self, image):
+        return self.extract_patches(image)
 
 if __name__ == "__main__":
+    from PIL import Image
+    import numpy as np
+    from torch.utils.data import Dataset, DataLoader
+
     patch_size=64
     stride=64
     num_resolutions=3
@@ -41,22 +52,28 @@ if __name__ == "__main__":
     max_patches_per_res=None
     interpolation="bilinear"
 
-    patches = []
-    image_size = (500, 500)
-    from PIL import Image
-    image = Image.open(r"")
-    image = image.resize((500, 500))
-    image = transforms.ToTensor()(image)
-    for i in range(num_resolutions):
-        scale_factor = 1 / (downsample_ratio ** i)
-        new_image = F.interpolate(image.unsqueeze(0), scale_factor=scale_factor, mode="bilinear")
-        print("nn.functional new_size: ", new_image.size())
-        unfold = torch.nn.Unfold(kernel_size=patch_size, stride=stride)
-        patches_at_dim = unfold(new_image)
-        patches_at_dim = patches_at_dim.view(patches_at_dim.size(0), 
-                                             3, 
-                                             patch_size, 
-                                             patch_size, 
-                                             -1)
-        patches_at_dim = patches_at_dim.permute(0, 4, 1, 2, 3)
-        print(patches_at_dim.size())
+    class CustomImageDataset(Dataset):
+        def __init__(self, images, transform=None):
+            self.images = images  # List of PIL images
+            self.transform = transform
+
+        def __len__(self):
+            return len(self.images)
+
+        def __getitem__(self, idx):
+            image = self.images[idx]
+            image = transforms.ToTensor()(image)  # Convert PIL to Tensor
+            if self.transform:
+                patches = self.transform(image)
+            return patches
+        
+    # Initialize patch extractor
+    patch_extractor = MultiResolutionPatches(patch_size, stride, num_resolutions, downsample_ratio)
+
+    # Example dataset and dataloader
+    dummy_images = [Image.open(r"").resize((500, 500))]  # Create random dummy images
+    dataset = CustomImageDataset(dummy_images, transform=patch_extractor)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+
+    for patches in dataloader:
+        print(patches.size())
