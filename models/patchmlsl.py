@@ -1,4 +1,4 @@
-from models.encoder import *
+from encoder import CustomEfficientNet
 import torch
 import torch.nn as nn
 
@@ -29,11 +29,24 @@ class PatchMLSL(nn.Module):
 
     def forward(self, patches):
         """
-        @param patches: Patches extracted from the original image [num_patches, channel, height, width]
+        @param patches: Patches extracted from the original image [batch_size, num_patches, channel, height, width]
+        @return classifier: Vector of the most probable classes [num_classes]
         """
-        # [num_patches, channel, height, width] -> [num_patches, embed_dim]
+        # [batch_size, num_patches, channel, height, width] -> [batch_size*num_patches, channel, height, width]
+        batch_size = patches.size(0)
+        num_patches = patches.size(1)
+        patches = patches.view(batch_size * num_patches, patches.size(2), patches.size(3), patches.size(4))
+        # [batch_size*num_patches, embed_dim] -> [batch_size, num_patches, embed_dim]
         patch_embs = self.encoder(patches)
-        pass
+        patch_embs = patch_embs.view(batch_size, num_patches, -1)
+        # Patches attention 
+        codebook = self.codebook.codebook
+        patches_attn = self.cross_attn(codebook, patch_embs)
+        # Image representation -> 
+        mlp = self.mlp(patches_attn)
+        image_repr = patches_attn + mlp
+        classifier = self.classifier(image_repr)
+        return classifier
 
 class CodebookLabel(nn.Module):
     def __init__(self,  n_cls=20, embed_dim=256):
@@ -82,5 +95,7 @@ class PatchMLSLClassifier(nn.Module):
         
 
 if __name__ == "__main__":
-    model = PatchMLSL(model_name="efficientnet_b4", n_blocks=4, intermediate_dim=128, embed_dim=256, n_cls=10)
-    print(model)
+    model = PatchMLSL(model_name="efficientnet_b4", n_blocks=4, intermediate_dim=128, embed_dim=256, n_cls=3)
+    input_tensor = torch.rand(2, 3, 3, 64, 64)
+    output = model(input_tensor)
+    print(output)
