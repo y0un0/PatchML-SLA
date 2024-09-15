@@ -74,6 +74,3 @@ if __name__ == "__main__":
     dummy_images = [Image.open(r"").resize((500, 500))]  # Create random dummy images
     dataset = CustomImageDataset(dummy_images, transform=patch_extractor)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
-
-    for patches in dataloader:
-        print(patches.size())
