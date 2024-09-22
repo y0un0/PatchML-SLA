@@ -1,1 +1,1 @@
-python coco.py --download-dir="~/PatchML-SLA/data"
+python download_coco.py --download-dir="~/PatchML-SLA/data"
