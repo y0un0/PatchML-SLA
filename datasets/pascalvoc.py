@@ -7,7 +7,7 @@ from download import *
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Initialize PASCAL VOC dataset.',
-        epilog='Example: python pascal_voc.py --download-dir ~/VOCdevkit',
+        epilog='Example: python pascalvoc.py --download-dir ~/VOCdevkit',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--download-dir', type=str, default='~/VOCdevkit/', help='dataset directory on disk')
     parser.add_argument('--no-download', action='store_true', help='disable automatic download if set')

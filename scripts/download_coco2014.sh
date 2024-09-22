@@ -1,0 +1,1 @@
+python coco.py --download-dir="~/PatchML-SLA/data"
