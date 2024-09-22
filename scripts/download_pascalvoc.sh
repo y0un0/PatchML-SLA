@@ -1,0 +1,1 @@
+python pascalvoc.py --download-dir="~/PatchML-SLA/data"
