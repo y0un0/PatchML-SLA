@@ -3,6 +3,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from PIL import Image, ImagePalette
+from xml.dom import minidom
+import random
 
 class PascalVOC(Dataset):
 
@@ -114,12 +116,28 @@ class VOCSingleAnnot(PascalVOC):
         #                              tf.MaskColourJitter(p = 1.0), \
         #                              tf.MaskNormalise(self.MEAN, self.STD), \
         #                              tf.MaskToTensor()])
-    def one_hot_encoding(self):
+
+    def read_xml(self, one_hot_label_file):
+        doc = minidom.parse(one_hot_label_file)
+        items = doc.getElementsByTagName("object")
+        ground_truths = [item.getElementsByTagName("name")[0].firstChild.nodeValue for item in items]
+        ground_truths = [PascalVOC.CLASS_IDX[name] for name in ground_truths]
+        return ground_truths
+
+
+    def one_hot_encoding(self, multiclass_labels):
         """
         Read the xml file find all the label in the image and 
         select the unique label by performing a random uniform selection
         """
-        pass
+        kept_class = random.choice(multiclass_labels)
+        one_hot_label = []
+        for cls_idx in range(PascalVOC.NUM_CLASS):
+            if kept_class == cls_idx:
+                one_hot_label.append(1)
+            else:
+                one_hot_label.append(0)
+        return one_hot_label
 
     def __len__(self):
         return len(self.images)
@@ -127,9 +145,8 @@ class VOCSingleAnnot(PascalVOC):
     def __getitem__(self, index):
 
         image = Image.open(self.images[index]).convert('RGB')
-        # TODO: process the xml file
-        one_hot_label  = self.one_hot_labels[index]
-
+        cls_info = self.read_xml(self.one_hot_labels[index])
+        one_hot_label = self.one_hot_encoding(cls_info)
         # general resize, normalize and toTensor
         # image, one_hot_label = self.transform(image, one_hot_label)
 
@@ -140,5 +157,7 @@ class VOCSingleAnnot(PascalVOC):
         return 0
 
 if __name__ == "__main__":
+    from xml.dom import minidom
+
     dataset = VOCSingleAnnot(cfg=None, split="val", test_mode=None, root="/teamspace/studios/this_studio/PatchML-SLA/data/VOC2012/")
     print(dataset[0])
