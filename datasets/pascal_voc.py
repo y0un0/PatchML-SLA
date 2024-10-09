@@ -2,9 +2,13 @@ import os
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from PIL import Image, ImagePalette
+from PIL import Image
 from xml.dom import minidom
+from utils.transform import MultiResolutionPatches
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 import random
+import cv2
 
 class PascalVOC(Dataset):
 
@@ -108,14 +112,56 @@ class VOCSingleAnnot(PascalVOC):
             assert (len(self.images) == len(self.one_hot_labels))
             if self.split == 'train':
                 assert len(self.images) == 10582
+                self.transform = [
+                    A.HorizontalFlip(p=0.5),
+                    A.ColorJitter(0.4,0.4,0.4,0.2, p=0.2),
+                    A.Normalize(PascalVOC.MEAN, PascalVOC.STD),
+                    ToTensorV2()
+                ]
             elif self.split == 'val':
                 assert len(self.images) == 1449
+                self.transform = [
+                    A.Normalize(PascalVOC.MEAN, PascalVOC.STD),
+                    ToTensorV2()
+                ]
 
-        # self.transform = tf.Compose([tf.MaskRandResizedCrop(self.cfg.DATASET), \
-        #                              tf.MaskHFlip(), \
-        #                              tf.MaskColourJitter(p = 1.0), \
-        #                              tf.MaskNormalise(self.MEAN, self.STD), \
-        #                              tf.MaskToTensor()])
+    def letterbox(self, im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
+        """
+            Resize input image and keep its aspect ratio. The image szie need to be divisible by 32 (stride=32).
+        """
+        # Resize and pad image while meeting stride-multiple constraints
+        shape = im.shape[:2]  # current shape [height, width]
+        
+        if isinstance(new_shape, int):
+            new_shape = (new_shape, new_shape)
+
+        # Scale ratio (new / old)
+        r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
+        if not scaleup:  # only scale down, do not scale up (for better val mAP)
+            r = min(r, 1.0)
+
+        # Compute padding
+        ratio = r, r  # width, height ratios
+        new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
+        
+        dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
+        if auto:  # minimum rectangle
+            dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
+        elif scaleFill:  # stretch
+            dw, dh = 0.0, 0.0
+            new_unpad = (new_shape[1], new_shape[0])
+            ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios
+
+        dw /= 2  # divide padding into 2 sides
+        dh /= 2
+
+    
+        if shape[::-1] != new_unpad:  # resize
+            im = cv2.resize(im, new_unpad, interpolation=cv2.INTER_LINEAR)
+        top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
+        left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+        im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+        return im, top, bottom, left, right
 
     def read_xml(self, one_hot_label_file):
         doc = minidom.parse(one_hot_label_file)
@@ -145,6 +191,9 @@ class VOCSingleAnnot(PascalVOC):
     def __getitem__(self, index):
 
         image = Image.open(self.images[index]).convert('RGB')
+        image = np.array(image)
+        image, top, bottom, left, right = self.letterbox(image, new_shape=(640, 640))
+        image = self.transform(image)
         cls_info = self.read_xml(self.one_hot_labels[index])
         one_hot_label = self.one_hot_encoding(cls_info)
         # general resize, normalize and toTensor
