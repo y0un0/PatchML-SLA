@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 from PIL import Image
 from xml.dom import minidom
-from utils.transform import MultiResolutionPatches
+# from utils.transform import MultiResolutionPatches
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import random
@@ -112,18 +112,18 @@ class VOCSingleAnnot(PascalVOC):
             assert (len(self.images) == len(self.one_hot_labels))
             if self.split == 'train':
                 assert len(self.images) == 10582
-                self.transform = [
+                self.transform = A.Compose([
                     A.HorizontalFlip(p=0.5),
                     A.ColorJitter(0.4,0.4,0.4,0.2, p=0.2),
                     A.Normalize(PascalVOC.MEAN, PascalVOC.STD),
                     ToTensorV2()
-                ]
+                ])
             elif self.split == 'val':
                 assert len(self.images) == 1449
-                self.transform = [
+                self.transform = A.Compose([
                     A.Normalize(PascalVOC.MEAN, PascalVOC.STD),
                     ToTensorV2()
-                ]
+                ])
 
     def letterbox(self, im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
         """
@@ -145,7 +145,7 @@ class VOCSingleAnnot(PascalVOC):
         new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
         
         dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
-        if auto:  # minimum rectangle
+        if auto:  # minimum rectangle --> False allows to keep a squared input
             dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
         elif scaleFill:  # stretch
             dw, dh = 0.0, 0.0
@@ -192,8 +192,8 @@ class VOCSingleAnnot(PascalVOC):
 
         image = Image.open(self.images[index]).convert('RGB')
         image = np.array(image)
-        image, top, bottom, left, right = self.letterbox(image, new_shape=(640, 640))
-        image = self.transform(image)
+        image, top, bottom, left, right = self.letterbox(image, new_shape=(640, 640), auto=False)
+        image = self.transform(image=image)
         cls_info = self.read_xml(self.one_hot_labels[index])
         one_hot_label = self.one_hot_encoding(cls_info)
         # general resize, normalize and toTensor
@@ -209,4 +209,4 @@ if __name__ == "__main__":
     from xml.dom import minidom
 
     dataset = VOCSingleAnnot(cfg=None, split="val", test_mode=None, root="/teamspace/studios/this_studio/PatchML-SLA/data/VOC2012/")
-    print(dataset[0])
+    print(dataset[0][0]["image"])
