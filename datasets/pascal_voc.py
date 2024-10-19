@@ -193,7 +193,7 @@ class VOCSingleAnnot(PascalVOC):
         image = Image.open(self.images[index]).convert('RGB')
         image = np.array(image)
         image, top, bottom, left, right = self.letterbox(image, new_shape=(640, 640), auto=False)
-        image = self.transform(image=image)
+        image = self.transform(image=image)["image"]
         cls_info = self.read_xml(self.one_hot_labels[index])
         one_hot_label = self.one_hot_encoding(cls_info)
         # general resize, normalize and toTensor
@@ -209,4 +209,4 @@ if __name__ == "__main__":
     from xml.dom import minidom
 
     dataset = VOCSingleAnnot(cfg=None, split="val", test_mode=None, root="/teamspace/studios/this_studio/PatchML-SLA/data/VOC2012/")
-    print(dataset[0][0]["image"])
+    print(dataset[0][0])
