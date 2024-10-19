@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 from PIL import Image
 from xml.dom import minidom
-# from utils.transform import MultiResolutionPatches
+
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import random
@@ -83,11 +83,11 @@ class VOCSingleAnnot(PascalVOC):
 
         # train/val/test splits are pre-cut
         if self.split == 'train':
-            _split_f = os.path.join(self.root, 'ImageSets', 'Segmentation', 'train.txt')
+            _split_f = os.path.join(self.root, 'ImageSets', 'Main', 'train.txt')
         elif self.split == 'val':
-            _split_f = os.path.join(self.root, 'ImageSets', 'Segmentation', 'val.txt')
+            _split_f = os.path.join(self.root, 'ImageSets', 'Main', 'val.txt')
         elif self.split == 'test':
-            _split_f = os.path.join(self.root, 'ImageSets', 'Segmentation', 'test.txt')
+            _split_f = os.path.join(self.root, 'ImageSets', 'Main', 'test.txt')
         else:
             raise RuntimeError('Unknown dataset split.')
 
@@ -111,7 +111,7 @@ class VOCSingleAnnot(PascalVOC):
         if self.split != 'test':
             assert (len(self.images) == len(self.one_hot_labels))
             if self.split == 'train':
-                assert len(self.images) == 10582
+                assert len(self.images) == 5717
                 self.transform = A.Compose([
                     A.HorizontalFlip(p=0.5),
                     A.ColorJitter(0.4,0.4,0.4,0.2, p=0.2),
@@ -119,7 +119,7 @@ class VOCSingleAnnot(PascalVOC):
                     ToTensorV2()
                 ])
             elif self.split == 'val':
-                assert len(self.images) == 1449
+                assert len(self.images) == 5823
                 self.transform = A.Compose([
                     A.Normalize(PascalVOC.MEAN, PascalVOC.STD),
                     ToTensorV2()
