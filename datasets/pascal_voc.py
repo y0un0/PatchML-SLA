@@ -15,7 +15,7 @@ class PascalVOC(Dataset):
     CLASSES = [
         'background', 'aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 
         'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse',
-        'motorbike', 'person', 'potted-plant', 'sheep', 'sofa', 'train',
+        'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 'train',
         'tvmonitor', 'ambiguous'
     ]
 
@@ -35,7 +35,7 @@ class PascalVOC(Dataset):
             'horse': 12,
             'motorbike': 13,
             'person': 14,
-            'potted-plant': 15,
+            'pottedplant': 15,
             'sheep': 16,
             'sofa': 17,
             'train': 18,
