@@ -1,4 +1,4 @@
-from encoder import CustomEfficientNet
+from models import CustomEfficientNet
 import torch
 import torch.nn as nn
 
