@@ -16,31 +16,30 @@ class PascalVOC(Dataset):
         'background', 'aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 
         'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse',
         'motorbike', 'person', 'potted-plant', 'sheep', 'sofa', 'train',
-        'tv/monitor', 'ambiguous'
+        'tvmonitor', 'ambiguous'
     ]
 
-    CLASS_IDX = {
-            'background': 0, 
-            'aeroplane': 1,
-            'bicycle': 2,
-            'bird': 3,
-            'boat': 4,
-            'bottle': 5,
-            'bus': 6,
-            'car': 7,
-            'cat': 8,
-            'chair': 9,
-            'cow': 10,
-            'diningtable': 11,
-            'dog': 12,
-            'horse': 13,
-            'motorbike': 14,
-            'person': 15,
-            'potted-plant': 16,
-            'sheep': 17,
-            'sofa': 18,
-            'train': 19,
-            'tv/monitor': 20
+    CLASS_IDX = { 
+            'aeroplane': 0,
+            'bicycle': 1,
+            'bird': 2,
+            'boat': 3,
+            'bottle': 4,
+            'bus': 5,
+            'car': 6,
+            'cat': 7,
+            'chair': 8,
+            'cow': 9,
+            'diningtable': 10,
+            'dog': 11,
+            'horse': 12,
+            'motorbike': 13,
+            'person': 14,
+            'potted-plant': 15,
+            'sheep': 16,
+            'sofa': 17,
+            'train': 18,
+            'tvmonitor': 19
             }
 
     CLASS_IDX_INV = {v: k for k, v in CLASS_IDX.items()}
@@ -196,10 +195,9 @@ class VOCSingleAnnot(PascalVOC):
         image = self.transform(image=image)["image"]
         cls_info = self.read_xml(self.one_hot_labels[index])
         one_hot_label = self.one_hot_encoding(cls_info)
-        # general resize, normalize and toTensor
-        # image, one_hot_label = self.transform(image, one_hot_label)
+        one_hot_label = np.array(one_hot_label)
 
-        return image, one_hot_label, os.path.basename(self.images[index])
+        return image, one_hot_label
 
     @property
     def pred_offset(self):
@@ -209,4 +207,4 @@ if __name__ == "__main__":
     from xml.dom import minidom
 
     dataset = VOCSingleAnnot(cfg=None, split="val", test_mode=None, root="/teamspace/studios/this_studio/PatchML-SLA/data/VOC2012/")
-    print(dataset[0][0])
+    print(dataset[100][1])
