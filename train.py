@@ -12,15 +12,15 @@ import torch.nn.functional as F
 import torch.optim
 import torch.utils.data
 import numpy as np
-import timm
+import timm.optim
 
 from datasets import VOCSingleAnnot
 from models import PatchMLSL
-from utils import (WeakNegativeLoss, MultiResolutionPatches, 
-                   get_dataloader, AverageMeter, adjust_learning_rate)
+from utils import (WeakNegativeLoss, get_dataloader, 
+                    AverageMeter, adjust_learning_rate, get_patches)
 
 parser = argparse.ArgumentParser(description='Training PatchMLSL')
-parser.add_argument('--gpu', default=0, type=int, help='which GPU to use')
+parser.add_argument('--device', default="cuda", type=str, help='which device to use')
 parser.add_argument('--seed', default=42, type=int, help='random seed')
 parser.add_argument('--dataset', default="VOC2012", type=str, help='dataset name')
 parser.add_argument('--dataset_path', default="/teamspace/studios/this_studio/PatchML-SLA/data/VOC2012/", type=str, help='location of dataset')
@@ -32,10 +32,16 @@ parser.add_argument('--theta', default=0.0, type=float, help='threshold relu for
 parser.add_argument('--epochs', default=25, type=int, help='number of total epochs to run')
 parser.add_argument('--save-epoch', default=5, type=int, help='save the model every save_epoch')
 parser.add_argument('--start-epoch', default=0, type=int, help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=16, type=int, help='mini-batch size (default: 16)')
+parser.add_argument('-b', '--batch-size', default=2, type=int, help='mini-batch size (default: 16)')
 parser.add_argument('--learning_rate', default=0.001, type=float, help='initial learning rate')
 parser.add_argument('--optimizer', default="lamb", type=str, help="name of the optimizer to use")
 parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float, help='weight decay (default: 0.0001)')
+parser.add_argument('--patch-size', default=64, type=int, help='height and width of the patch')
+parser.add_argument('--stride', default=64, type=int, help='number of pixels that separates each patch')
+parser.add_argument('--num-resolution', default=3, type=int, help='number of times to downsample the image')
+parser.add_argument('--downsample-ratio', default=2, type=int, help='uniform ratio applied for downsampling')
+parser.add_argument('--interpolation', default='bilinear', type=str, help='interpolation used for downsampling')
+
 # LR scheduler
 parser.add_argument('--lr_decay_epochs', type=str, default='5,10,15,20', help='where to decay lr, can be a list')
 parser.add_argument('--lr_decay_rate', type=float, default=0.5, help='decay rate for learning rate')
@@ -104,6 +110,7 @@ def main():
     
     model = PatchMLSL(model_name=args.model, n_blocks=args.n_blocks, intermediate_dim=args.intermediate_dim, 
                       embed_dim=args.embed_dim, n_cls=args.n_cls)
+    model = model.to(args.device)
 
     criterion_wnl = WeakNegativeLoss(theta=args.theta)
     if args.optimizer == "lamb":
@@ -115,13 +122,31 @@ def main():
                                 nesterov=True,
                                 weight_decay=args.weight_decay)
     elif args.optimizer == "adam":
-        optimzier = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate, 
+        optimizer = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate, 
                                 weight_decay=args.weight_decay)
 
+    # train(args, trainloader, model)
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(args, optimizer, epoch)
-        
-    # TODO: Implement the training loop
+        # TODO: Implement the training loop
+        pass
+    
+def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log):
+# def train(args, trainloader, model):
+    batch_time = AverageMeter()
+    wnl_losses = AverageMeter()
+
+    model.train()
+    end = time.time()
+    for i, (inputs, targets) in enumerate(trainloader):
+        inputs = inputs.to(args.device)
+        targets = targets.to(args.device)
+        # Dividing the input image into patches
+        input_patches = get_patches(args, inputs)
+
+        logits = model(input_patches)
+        # TODO: Modify the forward function of the model to return the image embeddings (for the loss)
+        pass
 
 if __name__ == "__main__":
     main()
