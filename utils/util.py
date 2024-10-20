@@ -7,7 +7,23 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 from torchvision import datasets, transforms
+from torch.utils.data import Dataset
 import torchvision.transforms as transforms
+from utils import MultiResolutionPatches
+
+class PatchDataset(Dataset):
+    def __init__(self, images, transform=None):
+        self.images = images  # List of PIL images
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        image = self.images[idx]
+        if self.transform:
+            patches = self.transform(image)
+        return patches
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -56,3 +72,13 @@ def get_dataloader(args, trainset, validset):
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, drop_last=True)
     validloader = torch.utils.data.DataLoader(validset, batch_size=args.batch_size, shuffle=False, drop_last=True)
     return trainloader, validloader
+
+def get_patches(args, inputs):
+    # Initialize patch extractor
+    patch_extractor = MultiResolutionPatches(args.patch_size, args.stride, args.num_resolution, 
+                                             args.downsample_ratio, interpolation=args.interpolation)
+    # Generate the set of patches
+    patches_set = PatchDataset(inputs, transform=patch_extractor)
+    patches_loader = torch.utils.data.DataLoader(patches_set, batch_size=args.batch_size, shuffle=False)
+    for patches in patches_loader:
+        return patches
