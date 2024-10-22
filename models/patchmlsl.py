@@ -46,7 +46,7 @@ class PatchMLSL(nn.Module):
         mlp = self.mlp(patches_attn)
         image_repr = patches_attn + mlp
         classifier = self.classifier(image_repr)
-        return classifier
+        return classifier, image_repr
 
 class CodebookLabel(nn.Module):
     def __init__(self,  n_cls=20, embed_dim=256):
