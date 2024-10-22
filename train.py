@@ -1,5 +1,5 @@
 import argparse
-import math
+import wandb
 import os
 import time
 from datetime import datetime
@@ -46,6 +46,8 @@ parser.add_argument('--interpolation', default='bilinear', type=str, help='inter
 parser.add_argument('--lr_decay_epochs', type=str, default='5,10,15,20', help='where to decay lr, can be a list')
 parser.add_argument('--lr_decay_rate', type=float, default=0.5, help='decay rate for learning rate')
 
+parser.add_argument('--print-freq', '-p', default=1, type=int, help='print frequency (default: 10)')
+
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(augment=True)
 
@@ -54,6 +56,34 @@ args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
 
 date_time = datetime.now().strftime("%d_%m_%H:%M")
+
+wandb.login()
+
+run = wandb.init(
+    # Set the project where this run will be logged
+    project="PatchMLSL-experiment",
+    # Track hyperparameters and run metadata
+    config={
+        "dataset": args.dataset,
+        "encoder": args.model,
+        "patch_size": args.patch_size,
+        "stride": args.stride,
+        "num_resolution": args.num_resolution,
+        "downsample_ratio": args.downsample_ratio,
+        "interpolation": args.interpolation,
+        "n_blocks": args.n_blocks,
+        "intermediate_dim": args.intermediate_dim,
+        "embed_dim": args.embed_dim,
+        "theta": args.theta,
+        "batch_size": args.batch_size,
+        "learning_rate": args.learning_rate,
+        "lr_decay_epochs": args.lr_decay_epochs,
+        "lr_decay_rate": args.lr_decay_rate,
+        "optimizer": args.optimizer,
+        "weight_decay": args.weight_decay,
+        "epochs": args.epochs,
+    },
+)
 
 # Processing str to list for epochs to decay learning rate 
 args.lr_decay_epochs = [int(step) for step in args.lr_decay_epochs.split(',')]
@@ -125,16 +155,20 @@ def main():
         optimizer = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate, 
                                 weight_decay=args.weight_decay)
 
-    # train(args, trainloader, model)
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(args, optimizer, epoch)
-        # TODO: Implement the training loop
+        train_wn_loss = train(args, trainloader, model, criterion_wnl, optimizer, epoch, log)
+        valid_wn_loss = fit(args, validloader, model, criterion_wnl, epoch, log)
+        wandb.log({"wn_loss_train": train_wn_loss, "wn_loss_valid": valid_wn_loss})
+        # save checkpoint
+        if (epoch + 1) % args.save_epoch == 0: 
+            if args.loss == 'supcon':
+                save_checkpoint(args, model, epoch + 1)
         pass
     
 def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log):
-# def train(args, trainloader, model):
     batch_time = AverageMeter()
-    wnl_losses = AverageMeter()
+    wn_losses = AverageMeter()
 
     model.train()
     end = time.time()
@@ -144,9 +178,55 @@ def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log):
         # Dividing the input image into patches
         input_patches = get_patches(args, inputs)
 
-        logits = model(input_patches)
-        # TODO: Modify the forward function of the model to return the image embeddings (for the loss)
-        pass
+        logits, image_repr = model(input_patches)
+        loss = criterion_wnl(image_repr, logits, targets)
+        wn_losses.update(loss.data, inputs.size(0))
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
+        if i % args.print_freq == 0: 
+            log.debug('Epoch: [{0}][{1}/{2}]\t'
+                'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                'Train WeakNeg Loss {wnloss.val:.4f} ({wnloss.avg:.4f})\t'.format(
+                    epoch, i, len(trainloader), batch_time=batch_time, wnloss=wn_losses))
+    return wn_losses.avg
+
+def fit(args, validloader, model, criterion_wnl, epoch, log):
+    # TODO: Add computation of the mAP
+    batch_time = AverageMeter()
+    wn_losses = AverageMeter()
+
+    model.eval()
+    end = time.time()
+    for i, (inputs, targets) in enumerate(validloader):
+        inputs = inputs.to(args.device)
+        targets = targets.to(args.device)
+        # Dividing the input image into patches
+        input_patches = get_patches(args, inputs)
+
+        logits, image_repr = model(input_patches)
+        loss = criterion_wnl(image_repr, logits, targets)
+        wn_losses.update(loss.data, inputs.size(0))
+
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
+        if i % args.print_freq == 0: 
+            log.debug('Epoch: [{0}][{1}/{2}]\t'
+                'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                'Valid WeakNeg Loss {wnloss.val:.4f} ({wnloss.avg:.4f})\t'.format(
+                    epoch, i, len(validloader), batch_time=batch_time, wnloss=wn_losses))
+    return wn_losses.avg
+
+def save_checkpoint(args, state, epoch):
+    """Saves checkpoint to disk"""
+    filename = args.model_directory + 'checkpoint_{}.pth'.format(epoch)
+    torch.save(state, filename)
 
 if __name__ == "__main__":
     main()
