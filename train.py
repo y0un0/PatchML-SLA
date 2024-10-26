@@ -46,7 +46,7 @@ parser.add_argument('--interpolation', default='bilinear', type=str, help='inter
 parser.add_argument('--lr_decay_epochs', type=str, default='5,10,15,20', help='where to decay lr, can be a list')
 parser.add_argument('--lr_decay_rate', type=float, default=0.5, help='decay rate for learning rate')
 
-parser.add_argument('--print-freq', '-p', default=1, type=int, help='print frequency (default: 10)')
+parser.add_argument('--print-freq', '-p', default=10, type=int, help='print frequency (default: 10)')
 
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(augment=True)

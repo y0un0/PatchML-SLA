@@ -25,9 +25,15 @@ class WeakNegativeLoss(nn.Module):
         negative_loss = 0
         for i in range(batch_size):
             # Positive loss: -z⁺ log(ŷ) (CrossEntropy)
-            positive_loss += -torch.sum(positive_labels[i] * torch.log(predicted_probs[i] + 1e-7))
+            pos_log = torch.log(predicted_probs[i] + 1e-7)
+            positive_loss += -torch.sum(positive_labels[i] * pos_log)
+            if torch.isnan(pos_log).any():
+                print(f"NaN in positive log probabilities for sample {i}: {pos_log}")
+
             # Cosine similarity matrix between all pairs of label embeddings to find the negative labels
             cos_sim_matrix = F.cosine_similarity(image_embeddings[i].unsqueeze(1), image_embeddings[i].unsqueeze(0), dim=-1)
+            if torch.isnan(cos_sim_matrix).any():
+                print(f"NaN in cosine similarity matrix for sample {i}: {cos_sim_matrix}")
             
             # Weak negative labels estimation
             beta_matrix = self.threshold_relu(cos_sim_matrix)
@@ -40,10 +46,15 @@ class WeakNegativeLoss(nn.Module):
                     weak_negative_labels[l] = torch.max(beta_lk)
             
             # Negative loss: - z⁻ log(1 - ŷ)
-            negative_loss += -torch.sum(weak_negative_labels[i] * torch.log(1 - (predicted_probs[i] + 1e-7)))
-        
+            neg_log = torch.log(torch.clamp(1 - (predicted_probs[i] + 1e-7), min=1e-7, max=1-1e-7))
+            negative_loss += -torch.sum(weak_negative_labels[i] * neg_log)
+            if torch.isnan(neg_log).any():
+                print(f"NaN in negative log probabilities for sample {i}: {neg_log}")
+
         # Weak negative loss
         weak_negative_loss = (positive_loss + negative_loss) / batch_size
+        if torch.isnan(weak_negative_loss):
+            print(f"NaN in weak negative loss: {weak_negative_loss}")
         return weak_negative_loss
     
 if __name__ == "__main__":
