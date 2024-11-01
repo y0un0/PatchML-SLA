@@ -162,8 +162,7 @@ def main():
         wandb.log({"wn_loss_train": train_wn_loss, "wn_loss_valid": valid_wn_loss})
         # save checkpoint
         if (epoch + 1) % args.save_epoch == 0: 
-            if args.loss == 'supcon':
-                save_checkpoint(args, model, epoch + 1)
+            save_checkpoint(args, model, epoch + 1)
         pass
     
 def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log):
