@@ -1,6 +1,5 @@
 import argparse
 import wandb
-from accelerate import Accelerator
 import os
 import time
 from datetime import datetime
@@ -130,7 +129,7 @@ np.random.seed(args.seed)
 log.debug(f"{args.name}")
 
 def main():
-    accelerator = Accelerator()
+
     if args.dataset == "VOC2012":
         trainset = VOCSingleAnnot(cfg=None, split="train", test_mode=None, root=args.dataset_path)
         validset = VOCSingleAnnot(cfg=None, split="val", test_mode=None, root=args.dataset_path)
@@ -141,7 +140,7 @@ def main():
     
     model = PatchMLSL(model_name=args.model, n_blocks=args.n_blocks, intermediate_dim=args.intermediate_dim, 
                       embed_dim=args.embed_dim, n_cls=args.n_cls)
-    # model = model.to(args.device)
+    model = model.to(args.device)
 
     criterion_wnl = WeakNegativeLoss(theta=args.theta)
     if args.optimizer == "lamb":
@@ -158,8 +157,8 @@ def main():
 
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(args, optimizer, epoch)
-        train_wn_loss = train(args, trainloader, model, criterion_wnl, optimizer, epoch, log, accelerator)
-        valid_wn_loss = fit(args, validloader, model, criterion_wnl, epoch, log, accelerator)
+        train_wn_loss = train(args, trainloader, model, criterion_wnl, optimizer, epoch, log)
+        valid_wn_loss = fit(args, validloader, model, criterion_wnl, epoch, log)
         wandb.log({"wn_loss_train": train_wn_loss, "wn_loss_valid": valid_wn_loss})
         # save checkpoint
         if (epoch + 1) % args.save_epoch == 0: 
@@ -167,17 +166,15 @@ def main():
                 save_checkpoint(args, model, epoch + 1)
         pass
     
-def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log, accelerator):
+def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log):
     batch_time = AverageMeter()
     wn_losses = AverageMeter()
-
-    trainloader, model, optimizer = accelerator.prepare(trainloader, model, optimizer)
 
     model.train()
     end = time.time()
     for i, (inputs, targets) in enumerate(trainloader):
-        # inputs = inputs.to(args.device)
-        # targets = targets.to(args.device)
+        inputs = inputs.to(args.device)
+        targets = targets.to(args.device)
         # Dividing the input image into patches
         input_patches = get_patches(args, inputs)
 
@@ -186,7 +183,7 @@ def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log, accele
         wn_losses.update(loss.data, inputs.size(0))
 
         optimizer.zero_grad()
-        accelerator.backward(loss)
+        loss.backward()
         optimizer.step()
 
         # measure elapsed time
@@ -199,18 +196,16 @@ def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log, accele
                     epoch, i, len(trainloader), batch_time=batch_time, wnloss=wn_losses))
     return wn_losses.avg
 
-def fit(args, validloader, model, criterion_wnl, epoch, log, accelerator):
+def fit(args, validloader, model, criterion_wnl, epoch, log):
     # TODO: Add computation of the mAP
     batch_time = AverageMeter()
     wn_losses = AverageMeter()
 
-    validloader, model = accelerator.prepare(validloader, model)
-
     model.eval()
     end = time.time()
     for i, (inputs, targets) in enumerate(validloader):
-        # inputs = inputs.to(args.device)
-        # targets = targets.to(args.device)
+        inputs = inputs.to(args.device)
+        targets = targets.to(args.device)
         # Dividing the input image into patches
         input_patches = get_patches(args, inputs)
 
