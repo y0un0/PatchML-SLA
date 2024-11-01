@@ -176,8 +176,8 @@ def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log, accele
     model.train()
     end = time.time()
     for i, (inputs, targets) in enumerate(trainloader):
-        inputs = inputs.to(args.device)
-        targets = targets.to(args.device)
+        # inputs = inputs.to(args.device)
+        # targets = targets.to(args.device)
         # Dividing the input image into patches
         input_patches = get_patches(args, inputs)
 
@@ -209,8 +209,8 @@ def fit(args, validloader, model, criterion_wnl, epoch, log, accelerator):
     model.eval()
     end = time.time()
     for i, (inputs, targets) in enumerate(validloader):
-        inputs = inputs.to(args.device)
-        targets = targets.to(args.device)
+        # inputs = inputs.to(args.device)
+        # targets = targets.to(args.device)
         # Dividing the input image into patches
         input_patches = get_patches(args, inputs)
 
