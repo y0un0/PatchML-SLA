@@ -72,13 +72,14 @@ class PascalVOC(Dataset):
 
 class VOCSingleAnnot(PascalVOC):
 
-    def __init__(self, cfg, split, test_mode, root=os.path.expanduser('./data')):
+    def __init__(self, cfg, split, test_mode, resize_type="default", root=os.path.expanduser('./data')):
         super(VOCSingleAnnot, self).__init__()
 
         self.cfg = cfg
         self.root = root
         self.split = split
         self.test_mode = test_mode
+        self.resize_type = resize_type
 
         # train/val/test splits are pre-cut
         if self.split == 'train':
@@ -191,7 +192,10 @@ class VOCSingleAnnot(PascalVOC):
 
         image = Image.open(self.images[index]).convert('RGB')
         image = np.array(image)
-        image, top, bottom, left, right = self.letterbox(image, new_shape=(640, 640), auto=False)
+        if self.resize_type == "letterbox":
+            image, _, _, _, _ = self.letterbox(image, new_shape=(640, 640), auto=False)
+        else:
+            image = cv2.resize(image, (640, 640), interpolation=cv2.INTER_CUBIC)
         image = self.transform(image=image)["image"]
         cls_info = self.read_xml(self.one_hot_labels[index])
         one_hot_label = self.one_hot_encoding(cls_info)

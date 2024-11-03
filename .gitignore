@@ -4,3 +4,5 @@ __pycache__
 data/
 checkpoints/
 logs/
+notebooks/
+check_models.ipynb
