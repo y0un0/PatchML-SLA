@@ -30,8 +30,9 @@ class WeakNegativeLoss(nn.Module):
             if torch.isnan(pos_log).any():
                 print(f"NaN in positive log probabilities for sample {i}: {pos_log}")
 
+            normalized_embeddings = F.normalize(image_embeddings[i], p=2, dim=1)
             # Cosine similarity matrix between all pairs of label embeddings to find the negative labels
-            cos_sim_matrix = F.cosine_similarity(image_embeddings[i].unsqueeze(1), image_embeddings[i].unsqueeze(0), dim=-1)
+            cos_sim_matrix = normalized_embeddings @ normalized_embeddings.T
             if torch.isnan(cos_sim_matrix).any():
                 print(f"NaN in cosine similarity matrix for sample {i}: {cos_sim_matrix}")
             
@@ -44,7 +45,6 @@ class WeakNegativeLoss(nn.Module):
                     # Find the max beta_{l,k} for all k where z⁺_k = 1
                     beta_lk = beta_matrix[l] * positive_labels[i]  # Mask to only consider positive labels
                     weak_negative_labels[l] = torch.max(beta_lk)
-            
             # Negative loss: - z⁻ log(1 - ŷ)
             neg_log = torch.log(torch.clamp(1 - (predicted_probs[i] + 1e-7), min=1e-7, max=1-1e-7))
             negative_loss += -torch.sum(weak_negative_labels[i] * neg_log)
