@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import timm
 
 class CustomEfficientNet(nn.Module):
@@ -30,9 +31,36 @@ class CustomEfficientNet(nn.Module):
         features = self.avg_pool(features)
         features = self.fc(features)
         return features
+
+class VanillaCNN(nn.Module):
+    def __init__(self, embed_dim=256):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=5)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=5)
+        self.fc = nn.Linear(in_features=64*53*53, out_features=embed_dim)
+    
+    def forward(self, x):
+        # Pass through conv1
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.pool(x)
+        # Pass through conv2
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = self.pool(x)
+        x = torch.flatten(x, 1)
+        # Pass through fc layer
+        x = self.fc(x)
+        return x
+
     
 if __name__ == "__main__":
-    model = CustomEfficientNet("efficientnet_b4", n_blocks=5)
+    vanilla = True
+    if not vanilla:
+        model = CustomEfficientNet("efficientnet_b4", n_blocks=5)
+    else:
+        model = VanillaCNN(embed_dim=256)
     input_tensor = torch.rand(2, 3, 3, 224, 224)
     # Reshape the input
     batch_size = input_tensor.size(0)

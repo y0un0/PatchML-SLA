@@ -93,6 +93,7 @@ class SyntheticDataset:
         image = self.transform(image=image)["image"]
         one_hot_label = self.one_hot_labels[index]
         pseudo_one_hot_label = self.pseudo_one_hot_label(one_hot_label)
+        pseudo_one_hot_label = np.array(pseudo_one_hot_label)
         return image, pseudo_one_hot_label
         
 
