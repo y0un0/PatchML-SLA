@@ -3,10 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class WeakNegativeLoss(nn.Module):
-    def __init__(self, theta=0.0):
+    def __init__(self, device, theta=0.0):
         super(WeakNegativeLoss, self).__init__()
         # Theta is the parameter for the ReLU
         self.theta = theta
+        self.device = device
 
     def threshold_relu(self, x):
         return F.relu(x - self.theta)
@@ -20,12 +21,14 @@ class WeakNegativeLoss(nn.Module):
         @return loss: Scalar loss value
         """
         batch_size, num_labels, _ = image_embeddings.shape
-        
+
+        eps = 1e-7
         positive_loss = 0
         negative_loss = 0
         for i in range(batch_size):
+            positive_label_index = torch.argwhere(positive_labels[i]).item()
             # Positive loss: -z⁺ log(ŷ) (CrossEntropy)
-            pos_log = torch.log(predicted_probs[i] + 1e-7)
+            pos_log = torch.log(torch.clamp(predicted_probs[i], min=eps, max=1 - eps))
             positive_loss += -torch.sum(positive_labels[i] * pos_log)
             if torch.isnan(pos_log).any():
                 print(f"NaN in positive log probabilities for sample {i}: {pos_log}")
@@ -38,16 +41,15 @@ class WeakNegativeLoss(nn.Module):
             
             # Weak negative labels estimation
             beta_matrix = self.threshold_relu(cos_sim_matrix)
-            weak_negative_labels = torch.zeros(num_labels)
+            weak_negative_labels = torch.zeros(num_labels, device=self.device)
             for l in range(num_labels):
-                # We need to go through all unobserved labels (z⁺_l = 0)
-                if positive_labels[i, l] == 0:
-                    # Find the max beta_{l,k} for all k where z⁺_k = 1
-                    beta_lk = beta_matrix[l] * positive_labels[i]  # Mask to only consider positive labels
-                    weak_negative_labels[l] = torch.max(beta_lk)
+                beta_lk = beta_matrix[l].clone()
+                beta_lk[positive_label_index] = 0 # Mask the positive index label
+                # Find the max beta_{l,k} for all k where z⁺_k = 1
+                weak_negative_labels[l] = torch.max(beta_lk)
             # Negative loss: - z⁻ log(1 - ŷ)
-            neg_log = torch.log(torch.clamp(1 - (predicted_probs[i] + 1e-7), min=1e-7, max=1-1e-7))
-            negative_loss += -torch.sum(weak_negative_labels[i] * neg_log)
+            neg_log = torch.log(torch.clamp(1 - (predicted_probs[i]), min=eps, max=1 - eps))
+            negative_loss += -torch.sum(weak_negative_labels * neg_log)
             if torch.isnan(neg_log).any():
                 print(f"NaN in negative log probabilities for sample {i}: {neg_log}")
 
