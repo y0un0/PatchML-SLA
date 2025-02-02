@@ -1,4 +1,6 @@
 from models import CustomEfficientNet, VanillaCNN
+from utils import MultiResolutionPatches
+from einops import rearrange, repeat
 import torch
 import torch.nn as nn
 
@@ -13,8 +15,22 @@ HANDLED_ENCODER = ["efficientnet_b0",
                    "vanilla-cnn"]
 
 class PatchMLSL(nn.Module):
-    def __init__(self, model_name="efficientnet_b4", n_blocks=5, intermediate_dim=128, embed_dim=256, n_cls=20):
+    def __init__(self, 
+                model_name="efficientnet_b4", 
+                n_blocks=5, 
+                intermediate_dim=128, 
+                embed_dim=256, 
+                n_cls=20,
+                patch_size=64,
+                stride=64,
+                num_resolutions=3,
+                downsample_ratio=2,
+                interpolation="bilinear"):
         super().__init__()
+
+        # Initialize patch extractor
+        self.patch_extractor = MultiResolutionPatches(patch_size=patch_size, stride=stride, num_resolutions=num_resolutions, 
+                                                    downsample_ratio=downsample_ratio, interpolation=interpolation)
         # Extracting patch embeddings
         if model_name in HANDLED_ENCODER and "vanilla" not in model_name:
             self.encoder = CustomEfficientNet(model_name=model_name, n_blocks=n_blocks, embed_dim=embed_dim)
@@ -22,64 +38,63 @@ class PatchMLSL(nn.Module):
             self.encoder = VanillaCNN(embed_dim=embed_dim)
         else:
             print("Encoder {} is not handled. Try one of these encoders {}".format(model_name, HANDLED_ENCODER))
-        # Generating the label codebook (row = n_cls, column = embed_dim)
-        self.codebook = CodebookLabel(n_cls=n_cls, embed_dim=embed_dim)
+
         # Extracting Image embeddings
-        self.cross_attn = PatchMLSLAttention()
-        self.mlp = PatchMLSLMLP(intermediate_dim, embed_dim)
+        self.cross_attn = PatchMLSLAttention(n_cls=n_cls, embed_dim=embed_dim)
+        self.mlp = PatchMLSLMLP(embed_dim)
         #Shared classifier
         self.classifier = PatchMLSLClassifier(n_cls=n_cls, embed_dim=embed_dim)
+        self.norm = nn.LayerNorm(embed_dim)
 
-    def forward(self, patches):
+    def forward(self, images):
         """
-        @param patches: Patches extracted from the original image [batch_size, num_patches, channel, height, width]
+        @param images: Input images [batch_size, channel, height, width]
         @return classifier: Vector of the most probable classes [num_classes]
         """
-        # [batch_size, num_patches, channel, height, width] -> [batch_size*num_patches, channel, height, width]
-        batch_size = patches.size(0)
-        num_patches = patches.size(1)
-        patches = patches.view(batch_size * num_patches, patches.size(2), patches.size(3), patches.size(4))
-        # [batch_size*num_patches, embed_dim] -> [batch_size, num_patches, embed_dim]
+        # Divide the image into patches
+        patches = self.patch_extractor.extract_patches(images) 
+        # Encode patches
+        # From [batch_size * num_patches, channels, height, width] to [batch_size * num_patches, embed_dim]
         patch_embs = self.encoder(patches)
-        patch_embs = patch_embs.view(batch_size, num_patches, -1)
-        # Patches attention 
-        codebook = self.codebook.codebook
-        patches_attn = self.cross_attn(codebook, patch_embs)
-        # Image representation -> 
+        # Reshape embeddings back into batch form
+        # From [batch_size * num_patches, embed_dim] to [batch_size, num_patches, embed_dim]
+        patch_embs = rearrange(patch_embs, '(b np) d -> b np d', b=images.size(0))
+        # Apply cross attention
+        # [batch_size, num_patches, embed_dim] -> [batch_size, embed_dim]
+        patches_attn = self.cross_attn(patch_embs)
+        # Image representation with MLP
+        # [batch_size, embed_dim] -> [batch_size, embed_dim]
         mlp = self.mlp(patches_attn)
-        image_repr = patches_attn + mlp
+        image_repr = patches_attn + mlp  # Combine attention and MLP output
+        # Normalize
+        image_repr = self.norm(image_repr)
+        # Classification
+        # [batch_size, embed_dim] -> [batch_size, num_classes]
         classifier = self.classifier(image_repr)
         return classifier, image_repr
-
-class CodebookLabel(nn.Module):
-    def __init__(self,  n_cls=20, embed_dim=256):
-        super().__init__()
-        self.codebook = nn.Parameter(torch.randn(n_cls, embed_dim))
-    
-    def forward(self):
-        return self.codebook
     
 class PatchMLSLAttention(nn.Module):
-    def __init__(self):
+    def __init__(self, n_cls=20, embed_dim=256):
         super().__init__()
-    
-    def forward(self, codebook, patch_embed):
+        self.codebook = nn.Parameter(torch.randn(n_cls, embed_dim))
+
+    def forward(self, patch_embed):
         # Compute Attention weights (Matrix A)
-        attn_weights = torch.matmul(codebook, patch_embed.transpose(1, 2))
+        attn_weights = torch.matmul(self.codebook, patch_embed.transpose(1, 2))
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
         # Perform the weighted sum (attn_weights * patch_embed)
         attn_patch = torch.matmul(attn_weights, patch_embed)
         return attn_patch
     
 class PatchMLSLMLP(nn.Module):
-    def __init__(self, intermediate_dim, embed_dim):
+    def __init__(self, embed_dim):
         super().__init__()
-        self.fc1 = nn.Linear(embed_dim, intermediate_dim)
-        self.fc2 = nn.Linear(intermediate_dim, embed_dim)
+        self.fc1 = nn.Linear(embed_dim, embed_dim)
+        self.fc2 = nn.Linear(embed_dim, embed_dim)
     
     def forward(self, attn_patch):
         hidden_state = self.fc1(attn_patch)
-        hidden_state = nn.functional.relu(hidden_state)
+        hidden_state = nn.functional.gelu(hidden_state)
         hidden_state = self.fc2(hidden_state)
         return hidden_state
     
@@ -90,8 +105,10 @@ class PatchMLSLClassifier(nn.Module):
     
     def forward(self, image_rep):
         logits = torch.matmul(self.cls_weights, image_rep.transpose(1, 2))
+        # logits = (image_rep * self.cls_weights.unsqueeze(0)).sum(dim=-1)
+        # logits = torch.einsum("bld,ld->bl", image_rep, self.cls_weights)
         # Apply softmax
-        logits = torch.softmax(logits, dim=-1)
+        logits = nn.functional.softmax(logits, dim=-1)
         # Extracting the diagonal
         output = logits.diagonal(dim1=-2, dim2=-1)
         return output
@@ -99,6 +116,6 @@ class PatchMLSLClassifier(nn.Module):
 
 if __name__ == "__main__":
     model = PatchMLSL(model_name="efficientnet_b4", n_blocks=4, intermediate_dim=128, embed_dim=256, n_cls=3)
-    input_tensor = torch.rand(2, 3, 3, 64, 64)
+    input_tensor = torch.rand(2, 3, 640, 640)
     output = model(input_tensor)
-    print(output)
+    print(output[0].shape, output[1].shape)
