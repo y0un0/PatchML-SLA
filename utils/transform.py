@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
 import random
+from einops import rearrange
 import matplotlib.pyplot as plt
 
 class MultiResolutionPatches:
@@ -15,26 +16,36 @@ class MultiResolutionPatches:
         self.interpolation = interpolation
         self.unfold = nn.Unfold(kernel_size=patch_size, stride=stride)
 
-    def extract_patches(self, image):
+    def extract_patches(self, images):
+        """
+        Extract patches from a batch of images at multiple resolutions.
+        @param images: Tensor of shape [batch_size, channels, height, width]
+        @return: Patches of shape [batch_size * num_patches, channels, patch_height, patch_width]
+        """
         patches = []
+        _, channels, _, _ = images.size()
+        
         # Go through each resolution level
         for r in range(self.num_resolutions):
             scale_factor = 1 / (self.downsample_ratio ** r)
-            downsampled_image = F.interpolate(image.unsqueeze(0), scale_factor=scale_factor, mode=self.interpolation).squeeze()
-            # Extract patches at resolution level
-            patches_at_dim = self.unfold(downsampled_image)
-            # Reshape
-            channel, _, _ = downsampled_image.size()
-            patches_at_dim = patches_at_dim.view(channel, self.patch_size, self.patch_size, -1)
-            patches_at_dim = patches_at_dim.permute(3, 0, 1, 2)
+            # Downsample the entire batch of images
+            downsampled_images = F.interpolate(images, scale_factor=scale_factor, mode=self.interpolation, align_corners=False)
+            # Extract patches at the current resolution
+            patches_at_res = self.unfold(downsampled_images)
+            # Reshape patches
+            num_patches = patches_at_res.size(-1)
 
-            # Choose a number of patches to sample if the image size is too big
-            if self.max_patches_per_res and self.max_patches_per_res > patches_at_dim.size(0):
-                rand_indices = random.sample(range(patches_at_dim.size(0)), self.max_patches_per_res)
-                patches_at_dim = patches_at_dim[rand_indices]
-
-            patches.append(patches_at_dim)
-        patches = torch.cat(patches)
+            patches_at_res = rearrange(patches_at_res, "b (c ph pw) np -> (b np) c ph pw", 
+                                       c=channels, ph=self.patch_size, pw=self.patch_size)
+            # Sample a subset of patches if needed
+            if self.max_patches_per_res and num_patches > self.max_patches_per_res:
+                selected_indices = torch.randperm(num_patches)[:self.max_patches_per_res]
+                patches_at_res = patches_at_res[selected_indices]
+            
+            patches.append(patches_at_res)
+        
+        # Concatenate patches from all resolutions
+        patches = torch.cat(patches, dim=0)
         return patches
 
     def __call__(self, image):
