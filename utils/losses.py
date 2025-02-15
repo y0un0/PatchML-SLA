@@ -10,7 +10,7 @@ class WeakNegativeLoss(nn.Module):
         self.device = device
 
     def threshold_relu(self, x):
-        return F.relu(x - self.theta)
+        return torch.where(x > self.theta, x, torch.zeros_like(x))
 
     def forward(self, image_embeddings, predicted_probs, positive_labels):
         """
@@ -26,9 +26,11 @@ class WeakNegativeLoss(nn.Module):
         positive_loss = 0
         negative_loss = 0
         for i in range(batch_size):
+            # Clamp predicted probabilities for numerical stability
+            pred_probs = torch.clamp(predicted_probs[i], min=eps, max=1 - eps)
             positive_label_index = torch.argwhere(positive_labels[i]).item()
-            # Positive loss: -z⁺ log(ŷ) (CrossEntropy)
-            pos_log = torch.log(torch.clamp(predicted_probs[i], min=eps, max=1 - eps))
+            # Positive loss: -z⁺ log(ŷ)
+            pos_log = torch.log(pred_probs)
             positive_loss += -torch.sum(positive_labels[i] * pos_log)
             if torch.isnan(pos_log).any():
                 print(f"NaN in positive log probabilities for sample {i}: {pos_log}")
@@ -43,12 +45,15 @@ class WeakNegativeLoss(nn.Module):
             beta_matrix = self.threshold_relu(cos_sim_matrix)
             weak_negative_labels = torch.zeros(num_labels, device=self.device)
             for l in range(num_labels):
-                beta_lk = beta_matrix[l].clone()
-                beta_lk[positive_label_index] = 0 # Mask the positive index label
-                # Find the max beta_{l,k} for all k where z⁺_k = 1
-                weak_negative_labels[l] = torch.max(beta_lk)
+                if l == positive_label_index:
+                    # For the positive label, ensure the negative score is zero
+                    weak_negative_labels[l] = 0.0
+                else:
+                    beta_lk = beta_matrix[l].clone()
+                    beta_value = beta_lk[positive_label_index]
+                    weak_negative_labels[l] = beta_value
             # Negative loss: - z⁻ log(1 - ŷ)
-            neg_log = torch.log(torch.clamp(1 - (predicted_probs[i]), min=eps, max=1 - eps))
+            neg_log = torch.log(1 - pred_probs)
             negative_loss += -torch.sum(weak_negative_labels * neg_log)
             if torch.isnan(neg_log).any():
                 print(f"NaN in negative log probabilities for sample {i}: {neg_log}")
@@ -57,23 +62,28 @@ class WeakNegativeLoss(nn.Module):
         weak_negative_loss = (positive_loss + negative_loss) / batch_size
         if torch.isnan(weak_negative_loss):
             print(f"NaN in weak negative loss: {weak_negative_loss}")
-        return weak_negative_loss
+        return weak_negative_loss, positive_loss / batch_size, negative_loss / batch_size
     
 if __name__ == "__main__":
     batch_size = 1
-    num_labels = 5
+    num_labels = 4
     embedding_dim = 256
 
     # Simulated image embeddings and label embeddings
     image_embeddings = torch.randn(batch_size, num_labels, embedding_dim)  # (batch_size, num_labels, embedding_dim)
 
     # Simulated positive labels (z⁺) (one-hot encoded or binary labels per class)
-    positive_labels = torch.randint(0, 2, (batch_size, num_labels)).float()  # Shape: (batch_size, num_labels)
+    # positive_labels = torch.randint(0, 2, (batch_size, num_labels)).float()  # Shape: (batch_size, num_labels)
+    positive_labels = torch.Tensor([0.0, 0.0, 1.0, 0.0]).float().unsqueeze(0)
+
     # Simulated predicted probabilities (after softmax or sigmoid)
-    predicted_probs = torch.sigmoid(torch.randn(batch_size, num_labels))  # Shape: (batch_size, num_labels)
+    # predicted_probs = torch.sigmoid(torch.randn(batch_size, num_labels))  # Shape: (batch_size, num_labels)
+    predicted_probs = torch.Tensor([0.9, 0.9, 0.7, 0.9]).float().unsqueeze(0)
 
     # Instantiate the loss function and compute the loss
-    loss_fn = WeakNegativeLoss(theta=0.0)
-    loss = loss_fn(image_embeddings, predicted_probs, positive_labels)
+    loss_fn = WeakNegativeLoss("cpu", theta=0.0)
+    loss, positive_loss, negative_loss = loss_fn(image_embeddings, predicted_probs, positive_labels)
 
     print(f"Loss: {loss.item()}")
+    print(f"Positive Loss: {positive_loss.item()}")
+    print (f"Negative Loss: {negative_loss.item()}")
