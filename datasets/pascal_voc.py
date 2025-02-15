@@ -72,7 +72,7 @@ class PascalVOC(Dataset):
 
 class VOCSingleAnnot(PascalVOC):
 
-    def __init__(self, cfg, split, test_mode, resize_type="default", root=os.path.expanduser('./data')):
+    def __init__(self, cfg, split, test_mode=False, resize_type="default", root=os.path.expanduser('./data')):
         super(VOCSingleAnnot, self).__init__()
 
         self.cfg = cfg
@@ -84,10 +84,8 @@ class VOCSingleAnnot(PascalVOC):
         # train/val/test splits are pre-cut
         if self.split == 'train':
             _split_f = os.path.join(self.root, 'ImageSets', 'Main', 'train.txt')
-        elif self.split == 'val':
+        elif self.split == 'val' or self.split == 'test':
             _split_f = os.path.join(self.root, 'ImageSets', 'Main', 'val.txt')
-        elif self.split == 'test':
-            _split_f = os.path.join(self.root, 'ImageSets', 'Main', 'test.txt')
         else:
             raise RuntimeError('Unknown dataset split.')
 
@@ -103,27 +101,26 @@ class VOCSingleAnnot(PascalVOC):
                 assert os.path.isfile(_image), '%s not found' % _image
                 self.images.append(_image)
             
-                if self.split != 'test':
-                    _one_hot_label = os.path.join(self.root, "Annotations",  _one_hot_label)
-                    assert os.path.isfile(_one_hot_label), '%s not found' % _one_hot_label
-                    self.one_hot_labels.append(_one_hot_label)
+            
+                _one_hot_label = os.path.join(self.root, "Annotations",  _one_hot_label)
+                assert os.path.isfile(_one_hot_label), '%s not found' % _one_hot_label
+                self.one_hot_labels.append(_one_hot_label)
 
-        if self.split != 'test':
-            assert (len(self.images) == len(self.one_hot_labels))
-            if self.split == 'train':
-                assert len(self.images) == 5717
-                self.transform = A.Compose([
-                    A.HorizontalFlip(p=0.5),
-                    A.ColorJitter(0.4,0.4,0.4,0.2, p=0.2),
-                    A.Normalize(PascalVOC.MEAN, PascalVOC.STD),
-                    ToTensorV2()
-                ])
-            elif self.split == 'val':
-                assert len(self.images) == 5823
-                self.transform = A.Compose([
-                    A.Normalize(PascalVOC.MEAN, PascalVOC.STD),
-                    ToTensorV2()
-                ])
+        assert (len(self.images) == len(self.one_hot_labels))
+        if self.split == 'train':
+            assert len(self.images) == 5717
+            self.transform = A.Compose([
+                A.HorizontalFlip(p=0.5),
+                A.ColorJitter(0.4,0.4,0.4,0.2, p=0.2),
+                A.Normalize(PascalVOC.MEAN, PascalVOC.STD),
+                ToTensorV2()
+            ])
+        elif self.split == 'val' or self.split == "test":
+            assert len(self.images) == 5823
+            self.transform = A.Compose([
+                A.Normalize(PascalVOC.MEAN, PascalVOC.STD),
+                ToTensorV2()
+            ])
 
     def letterbox(self, im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
         """
@@ -176,13 +173,19 @@ class VOCSingleAnnot(PascalVOC):
         Read the xml file find all the label in the image and 
         select the unique label by performing a random uniform selection
         """
-        kept_class = random.choice(multiclass_labels)
-        one_hot_label = []
+        # Remove the duplicate
+        multiclass_labels = np.unique(multiclass_labels)
+        if len(multiclass_labels) > 1 and 14 in multiclass_labels:
+            multiclass_labels = np.delete(multiclass_labels, np.argwhere(multiclass_labels == 14))
+        if self.test_mode:
+            # In test mode, no need to randomly choose one label
+            kept_class = multiclass_labels
+        else:
+            kept_class = [random.choice(multiclass_labels)]
+        one_hot_label = np.zeros(PascalVOC.NUM_CLASS)
         for cls_idx in range(PascalVOC.NUM_CLASS):
-            if kept_class == cls_idx:
-                one_hot_label.append(1)
-            else:
-                one_hot_label.append(0)
+            if cls_idx in kept_class:
+                one_hot_label[cls_idx] = 1
         return one_hot_label
 
     def __len__(self):
@@ -199,8 +202,6 @@ class VOCSingleAnnot(PascalVOC):
         image = self.transform(image=image)["image"]
         cls_info = self.read_xml(self.one_hot_labels[index])
         one_hot_label = self.one_hot_encoding(cls_info)
-        one_hot_label = np.array(one_hot_label)
-
         return image, one_hot_label
 
     @property
