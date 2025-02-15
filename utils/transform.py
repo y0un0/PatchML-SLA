@@ -2,9 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
-import random
 from einops import rearrange
-import matplotlib.pyplot as plt
 
 class MultiResolutionPatches:
     def __init__(self, patch_size=64, stride=64, num_resolutions=3, downsample_ratio=2, max_patches_per_res=None, interpolation="bilinear"):
