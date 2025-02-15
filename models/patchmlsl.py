@@ -1,6 +1,6 @@
 from models import CustomEfficientNet, VanillaCNN
 from utils import MultiResolutionPatches
-from einops import rearrange, repeat
+from einops import rearrange
 import torch
 import torch.nn as nn
 
@@ -17,7 +17,7 @@ HANDLED_ENCODER = ["efficientnet_b0",
 class PatchMLSL(nn.Module):
     def __init__(self, 
                 model_name="efficientnet_b4", 
-                n_blocks=5, 
+                n_blocks=4, 
                 intermediate_dim=128, 
                 embed_dim=256, 
                 n_cls=20,
@@ -56,6 +56,8 @@ class PatchMLSL(nn.Module):
         # Encode patches
         # From [batch_size * num_patches, channels, height, width] to [batch_size * num_patches, embed_dim]
         patch_embs = self.encoder(patches)
+        # Normalize the patch embeddings
+        patch_embs = self.norm(patch_embs)
         # Reshape embeddings back into batch form
         # From [batch_size * num_patches, embed_dim] to [batch_size, num_patches, embed_dim]
         patch_embs = rearrange(patch_embs, '(b np) d -> b np d', b=images.size(0))
@@ -66,7 +68,7 @@ class PatchMLSL(nn.Module):
         # [batch_size, embed_dim] -> [batch_size, embed_dim]
         mlp = self.mlp(patches_attn)
         image_repr = patches_attn + mlp  # Combine attention and MLP output
-        # Normalize
+        # Normalize image representation
         image_repr = self.norm(image_repr)
         # Classification
         # [batch_size, embed_dim] -> [batch_size, num_classes]
@@ -76,7 +78,9 @@ class PatchMLSL(nn.Module):
 class PatchMLSLAttention(nn.Module):
     def __init__(self, n_cls=20, embed_dim=256):
         super().__init__()
-        self.codebook = nn.Parameter(torch.randn(n_cls, embed_dim))
+        tensor_codebook = torch.randn(n_cls, embed_dim)
+        nn.init.xavier_uniform_(tensor_codebook)
+        self.codebook = nn.Parameter(tensor_codebook, requires_grad=True)
 
     def forward(self, patch_embed):
         # Compute Attention weights (Matrix A)
@@ -101,7 +105,9 @@ class PatchMLSLMLP(nn.Module):
 class PatchMLSLClassifier(nn.Module):
     def __init__(self, n_cls=20, embed_dim=256):
         super().__init__()
-        self.cls_weights = nn.Parameter(torch.randn(n_cls, embed_dim))
+        tensor_cls_weights = torch.randn(n_cls, embed_dim)
+        nn.init.xavier_uniform_(tensor_cls_weights)
+        self.cls_weights = nn.Parameter(tensor_cls_weights, requires_grad=True)
     
     def forward(self, image_rep):
         logits = torch.matmul(self.cls_weights, image_rep.transpose(1, 2))
