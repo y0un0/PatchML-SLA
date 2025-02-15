@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import timm
 
 class CustomEfficientNet(nn.Module):
-    def __init__(self, model_name, n_blocks, adavgpool_size=5, embed_dim=256):
+    def __init__(self, model_name, n_blocks, adavgpool_size=4, embed_dim=256):
         super().__init__()
         self.n_blocks = n_blocks
         self.base_model = timm.create_model(model_name=model_name, pretrained=False)
@@ -15,8 +15,7 @@ class CustomEfficientNet(nn.Module):
         del self.base_model
 
         # Adding the average pooling and fc layer
-        layers_dim = [dim for dim in self.blocks.parameters()]
-        last_layer_dim = layers_dim[-1].size()[-1]
+        last_layer_dim = self.blocks[-1][-1].bn3.num_features
         self.avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d(adavgpool_size),
                                       nn.Flatten(1))
         self.fc = nn.Linear(in_features=last_layer_dim*adavgpool_size**2, out_features=embed_dim)
@@ -36,9 +35,9 @@ class VanillaCNN(nn.Module):
     def __init__(self, embed_dim=256):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=5)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pool = nn.AdaptiveAvgPool2d(5)
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=5)
-        self.fc = nn.Linear(in_features=64*53*53, out_features=embed_dim)
+        self.fc = nn.Linear(in_features=64*5**2, out_features=embed_dim)
     
     def forward(self, x):
         # Pass through conv1
@@ -56,17 +55,20 @@ class VanillaCNN(nn.Module):
 
     
 if __name__ == "__main__":
-    vanilla = True
+    vanilla = False
     if not vanilla:
-        model = CustomEfficientNet("efficientnet_b4", n_blocks=5)
+        model = CustomEfficientNet("efficientnet_b0", n_blocks=4)
+        for name, parameters in model.named_parameters():
+            print(name)
+        
     else:
         model = VanillaCNN(embed_dim=256)
-    input_tensor = torch.rand(2, 3, 3, 224, 224)
-    # Reshape the input
-    batch_size = input_tensor.size(0)
-    num_patches = input_tensor.size(1)
-    reshaped_input_tensor = input_tensor.view(batch_size * num_patches, input_tensor.size(2), input_tensor.size(3), input_tensor.size(4))
-    print(reshaped_input_tensor.size())
-    output = model(reshaped_input_tensor)
-    output = output.view(batch_size, num_patches, -1)
-    print(output.size())
+    # input_tensor = torch.rand(2, 3, 3, 64, 64)
+    # # Reshape the input
+    # batch_size = input_tensor.size(0)
+    # num_patches = input_tensor.size(1)
+    # reshaped_input_tensor = input_tensor.view(batch_size * num_patches, input_tensor.size(2), input_tensor.size(3), input_tensor.size(4))
+    # print(reshaped_input_tensor.size())
+    # output = model(reshaped_input_tensor)
+    # output = output.view(batch_size, num_patches, -1)
+    # print(output.size())
