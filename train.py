@@ -14,18 +14,21 @@ import torch.utils.data
 import numpy as np
 import timm.optim
 
-from datasets import VOCSingleAnnot
+from datasets import VOCSingleAnnot, SyntheticDataset
 from models import PatchMLSL
 from utils import (WeakNegativeLoss, get_dataloader, 
-                    AverageMeter, adjust_learning_rate, get_patches)
+                    AverageMeter, adjust_learning_rate, init_weights)
 
 parser = argparse.ArgumentParser(description='Training PatchMLSL')
 parser.add_argument('--device', default="cuda", type=str, help='which device to use')
 parser.add_argument('--seed', default=42, type=int, help='random seed')
+parser.add_argument('--debugging', default=False, type=bool, help='Flag to use synthetic dataset to debug model')
 parser.add_argument('--dataset', default="VOC2012", type=str, help='dataset name')
 parser.add_argument('--dataset_path', default="/kaggle/working/PatchML-SLA/datasets/kaggle/working/PatchML-SLA/data/VOC2012/", type=str, help='location of dataset')
-parser.add_argument('--model', default='efficientnet_b4', type=str, help='model architecture: [efficientnet_b0, ...]')
-parser.add_argument('--n_blocks', default=5, type=int, help='number of blocks to keep in the architecture')
+# parser.add_argument('--dataset_path', default="data/VOC2012/", type=str, help='location of dataset')
+parser.add_argument('--model', default='efficientnet_b0', type=str, help='model architecture: [efficientnet_b0, ...]')
+parser.add_argument('--load_model', default='', type=str, help='Load previous model weights')
+parser.add_argument('--n_blocks', default=4, type=int, help='number of blocks to keep in the architecture')
 parser.add_argument('--intermediate_dim', default=128, type=int, help='intermediate dim')
 parser.add_argument('--embed_dim', default=256, type=int, help='embedded dim')
 parser.add_argument('--theta', default=0.0, type=float, help='threshold relu for the weak negative loss')
@@ -82,6 +85,7 @@ run = wandb.init(
         "optimizer": args.optimizer,
         "weight_decay": args.weight_decay,
         "epochs": args.epochs,
+        "debug_loss_pos_neg": "ours"
     },
 )
 
@@ -121,6 +125,8 @@ if args.dataset == "VOC2012":
     args.n_cls = 20
 elif args.dataset == "COCO":
     args.n_cls = 80
+elif args.dataset == "Synthetic":
+    args.n_cls = 5
 
 #set seeds
 torch.manual_seed(args.seed)
@@ -130,19 +136,32 @@ log.debug(f"{args.name}")
 
 def main():
 
-    if args.dataset == "VOC2012":
-        trainset = VOCSingleAnnot(cfg=None, split="train", test_mode=None, root=args.dataset_path)
-        validset = VOCSingleAnnot(cfg=None, split="val", test_mode=None, root=args.dataset_path)
+    if not args.debugging:
+        if args.dataset == "VOC2012":
+            trainset = VOCSingleAnnot(cfg=None, split="train", root=args.dataset_path, resize_type="default")
+            validset = VOCSingleAnnot(cfg=None, split="val", root=args.dataset_path, resize_type="default")
+            trainloader, validloader = get_dataloader(args, trainset, validset)
+        
+        elif args.dataset == "COCO":
+            pass
+    else:
+        dataset = SyntheticDataset(image_shape=(100, 100, 3), n_cls=args.n_cls, n_samples=150000, split='train', seed=args.seed, max_overlap=0.5)
+        trainset, validset = torch.utils.data.random_split(dataset, [100000, 50000])
+        # validset = SyntheticDataset(image_shape=(100, 100, 3), n_cls=args.n_cls, n_samples=60000, split='val', seed=args.seed + 1, max_overlap=0.5)
         trainloader, validloader = get_dataloader(args, trainset, validset)
-    
-    elif args.dataset == "COCO":
-        pass
-    
-    model = PatchMLSL(model_name=args.model, n_blocks=args.n_blocks, intermediate_dim=args.intermediate_dim, 
-                      embed_dim=args.embed_dim, n_cls=args.n_cls)
+    if args.load_model == '':
+        model = PatchMLSL(model_name=args.model, n_blocks=args.n_blocks, intermediate_dim=args.intermediate_dim, 
+                        embed_dim=args.embed_dim, n_cls=args.n_cls)
+        
+        # initialize weights
+        # model.apply(init_weights)
+
+    else:       
+        model = torch.load(args.load_model)
+            
     model = model.to(args.device)
 
-    criterion_wnl = WeakNegativeLoss(theta=args.theta)
+    criterion_wnl = WeakNegativeLoss(device=args.device, theta=args.theta)
     if args.optimizer == "lamb":
         optimizer = timm.optim.Lamb(params=model.parameters(), lr=args.learning_rate, 
                                 weight_decay=args.weight_decay)
@@ -155,31 +174,35 @@ def main():
         optimizer = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate, 
                                 weight_decay=args.weight_decay)
 
+    # wandb.watch(model, criterion_wnl, log="all", log_freq=args.print_freq)
+
     for epoch in range(args.start_epoch, args.epochs):
+        # TODO: Add a cosine scheduler
         adjust_learning_rate(args, optimizer, epoch)
-        train_wn_loss = train(args, trainloader, model, criterion_wnl, optimizer, epoch, log)
-        valid_wn_loss = fit(args, validloader, model, criterion_wnl, epoch, log)
-        wandb.log({"wn_loss_train": train_wn_loss, "wn_loss_valid": valid_wn_loss})
+        train_wn_loss, train_pos_loss, train_neg_loss = train(args, trainloader, model, criterion_wnl, optimizer, epoch, log)
+        valid_wn_loss, valid_pos_loss, valid_neg_loss = fit(args, validloader, model, criterion_wnl, epoch, log)
+        wandb.log({"wn_loss_train": train_wn_loss, "wn_loss_valid": valid_wn_loss, 
+                    "pos_loss_train": train_pos_loss, "pos_loss_valid": valid_pos_loss, 
+                    "neg_loss_train": train_neg_loss, "neg_loss_valid": valid_neg_loss})
         # save checkpoint
         if (epoch + 1) % args.save_epoch == 0: 
             save_checkpoint(args, model, epoch + 1)
-        pass
     
 def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log):
     batch_time = AverageMeter()
     wn_losses = AverageMeter()
-
+    pos_losses = AverageMeter()
+    neg_losses = AverageMeter()
     model.train()
     end = time.time()
     for i, (inputs, targets) in enumerate(trainloader):
         inputs = inputs.to(args.device)
         targets = targets.to(args.device)
-        # Dividing the input image into patches
-        input_patches = get_patches(args, inputs)
-
-        logits, image_repr = model(input_patches)
-        loss = criterion_wnl(image_repr, logits, targets)
+        logits, image_repr = model(inputs)
+        loss, positive_loss, negative_loss = criterion_wnl(image_repr, logits.float(), targets.float())
         wn_losses.update(loss.data, inputs.size(0))
+        pos_losses.update(positive_loss, inputs.size(0))
+        neg_losses.update(negative_loss, inputs.size(0))
 
         optimizer.zero_grad()
         loss.backward()
@@ -193,25 +216,24 @@ def train(args, trainloader, model, criterion_wnl, optimizer, epoch, log):
                 'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                 'Train WeakNeg Loss {wnloss.val:.4f} ({wnloss.avg:.4f})\t'.format(
                     epoch, i, len(trainloader), batch_time=batch_time, wnloss=wn_losses))
-    return wn_losses.avg
+    return wn_losses.avg, pos_losses.avg, neg_losses.avg
 
 def fit(args, validloader, model, criterion_wnl, epoch, log):
-    # TODO: Add computation of the mAP
     batch_time = AverageMeter()
     wn_losses = AverageMeter()
-
+    pos_losses = AverageMeter()
+    neg_losses = AverageMeter()
     model.eval()
     end = time.time()
     for i, (inputs, targets) in enumerate(validloader):
         inputs = inputs.to(args.device)
         targets = targets.to(args.device)
-        # Dividing the input image into patches
-        input_patches = get_patches(args, inputs)
-
-        logits, image_repr = model(input_patches)
-        loss = criterion_wnl(image_repr, logits, targets)
+        with torch.no_grad():
+            logits, image_repr = model(inputs)
+            loss, positive_loss, negative_loss = criterion_wnl(image_repr, logits, targets)
         wn_losses.update(loss.data, inputs.size(0))
-
+        pos_losses.update(positive_loss, inputs.size(0))
+        neg_losses.update(negative_loss, inputs.size(0))
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
@@ -220,7 +242,7 @@ def fit(args, validloader, model, criterion_wnl, epoch, log):
                 'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                 'Valid WeakNeg Loss {wnloss.val:.4f} ({wnloss.avg:.4f})\t'.format(
                     epoch, i, len(validloader), batch_time=batch_time, wnloss=wn_losses))
-    return wn_losses.avg
+    return wn_losses.avg, pos_losses.avg, neg_losses.avg
 
 def save_checkpoint(args, state, epoch):
     """Saves checkpoint to disk"""
