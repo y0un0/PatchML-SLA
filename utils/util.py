@@ -1,14 +1,7 @@
-import math
-import os
-
 from torch import nn
 import numpy as np
 import torch
-import torch.optim as optim
-import torch.nn.functional as F
-from torchvision import datasets, transforms
 from torch.utils.data import Dataset
-import torchvision.transforms as transforms
 from utils import MultiResolutionPatches
 
 class PatchDataset(Dataset):
@@ -68,9 +61,40 @@ def adjust_learning_rate(args, optimizer, epoch):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
+def init_weights(module):
+    # For Convolutional layers
+    if isinstance(module, nn.Conv2d):
+        # Kaiming initialization (He initialization) is appropriate.
+        # Note: nonlinearity='swish' is not directly supported,
+        # so you might use nonlinearity='relu' or experiment with a custom gain.
+        nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+        if module.bias is not None:
+            nn.init.constant_(module.bias, 0)
+    
+    # For Linear layers
+    elif isinstance(module, nn.Linear):
+        # Xavier initialization helps keep variance roughly constant.
+        nn.init.xavier_uniform_(module.weight)
+        if module.bias is not None:
+            nn.init.constant_(module.bias, 0)
+    
+    # For BatchNorm/LayerNorm, if used, you can also initialize weights and biases:
+    elif isinstance(module, (nn.BatchNorm2d, nn.LayerNorm)):
+        nn.init.constant_(module.weight, 1)
+        nn.init.constant_(module.bias, 0)
+
+def eval_get_dataloader(args, evalset):
+    evalloader = torch.utils.data.DataLoader(evalset, batch_size=args.batch_size, shuffle=False, drop_last=True)
+    return evalloader
+
 def get_dataloader(args, trainset, validset):
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, drop_last=True)
     validloader = torch.utils.data.DataLoader(validset, batch_size=args.batch_size, shuffle=False, drop_last=True)
+    return trainloader, validloader
+
+def get_dataloader_nb(batch_size, trainset, validset):
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, drop_last=True)
+    validloader = torch.utils.data.DataLoader(validset, batch_size=batch_size, shuffle=False, drop_last=True)
     return trainloader, validloader
 
 def get_patches(args, inputs):
