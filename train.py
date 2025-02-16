@@ -154,7 +154,7 @@ def main():
                         embed_dim=args.embed_dim, n_cls=args.n_cls)
         
         # initialize weights
-        # model.apply(init_weights)
+        model.apply(init_weights)
 
     else:       
         model = torch.load(args.load_model)
