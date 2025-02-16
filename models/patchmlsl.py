@@ -44,7 +44,6 @@ class PatchMLSL(nn.Module):
         self.mlp = PatchMLSLMLP(embed_dim)
         #Shared classifier
         self.classifier = PatchMLSLClassifier(n_cls=n_cls, embed_dim=embed_dim)
-        self.norm = nn.LayerNorm(embed_dim)
 
     def forward(self, images):
         """
@@ -56,8 +55,6 @@ class PatchMLSL(nn.Module):
         # Encode patches
         # From [batch_size * num_patches, channels, height, width] to [batch_size * num_patches, embed_dim]
         patch_embs = self.encoder(patches)
-        # Normalize the patch embeddings
-        patch_embs = self.norm(patch_embs)
         # Reshape embeddings back into batch form
         # From [batch_size * num_patches, embed_dim] to [batch_size, num_patches, embed_dim]
         patch_embs = rearrange(patch_embs, '(b np) d -> b np d', b=images.size(0))
@@ -68,8 +65,6 @@ class PatchMLSL(nn.Module):
         # [batch_size, embed_dim] -> [batch_size, embed_dim]
         mlp = self.mlp(patches_attn)
         image_repr = patches_attn + mlp  # Combine attention and MLP output
-        # Normalize image representation
-        image_repr = self.norm(image_repr)
         # Classification
         # [batch_size, embed_dim] -> [batch_size, num_classes]
         classifier = self.classifier(image_repr)
@@ -95,11 +90,13 @@ class PatchMLSLMLP(nn.Module):
         super().__init__()
         self.fc1 = nn.Linear(embed_dim, embed_dim)
         self.fc2 = nn.Linear(embed_dim, embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
     
     def forward(self, attn_patch):
         hidden_state = self.fc1(attn_patch)
         hidden_state = nn.functional.gelu(hidden_state)
         hidden_state = self.fc2(hidden_state)
+        hidden_state = self.norm2(hidden_state)
         return hidden_state
     
 class PatchMLSLClassifier(nn.Module):
