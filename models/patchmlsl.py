@@ -90,13 +90,11 @@ class PatchMLSLMLP(nn.Module):
         super().__init__()
         self.fc1 = nn.Linear(embed_dim, embed_dim)
         self.fc2 = nn.Linear(embed_dim, embed_dim)
-        self.norm2 = nn.LayerNorm(embed_dim)
     
     def forward(self, attn_patch):
         hidden_state = self.fc1(attn_patch)
         hidden_state = nn.functional.gelu(hidden_state)
         hidden_state = self.fc2(hidden_state)
-        hidden_state = self.norm2(hidden_state)
         return hidden_state
     
 class PatchMLSLClassifier(nn.Module):

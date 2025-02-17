@@ -19,7 +19,7 @@ class CustomEfficientNet(nn.Module):
         self.avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d(adavgpool_size),
                                       nn.Flatten(1))
         self.fc = nn.Linear(in_features=last_layer_dim*adavgpool_size**2, out_features=embed_dim)
-        self.norm1 = nn.LayerNorm(embed_dim)
+        # self.norm1 = nn.LayerNorm(embed_dim)
 
     def extract_block(self):
         return nn.Sequential(*[self.base_model.blocks[i] for i in range(self.n_blocks + 1)])
@@ -30,7 +30,7 @@ class CustomEfficientNet(nn.Module):
         features = self.blocks(bn1)
         features = self.avg_pool(features)
         features = self.fc(features)
-        features = self.norm1(features)
+        # features = self.norm1(features)
         return features
 
 class VanillaCNN(nn.Module):
