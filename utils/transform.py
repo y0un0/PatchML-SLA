@@ -21,7 +21,7 @@ class MultiResolutionPatches:
         @return: Patches of shape [batch_size * num_patches, channels, patch_height, patch_width]
         """
         patches = []
-        _, channels, _, _ = images.size()
+        batch_size, channels, h, w = images.size()
         
         # Go through each resolution level
         for r in range(self.num_resolutions):
@@ -33,8 +33,8 @@ class MultiResolutionPatches:
             # Reshape patches
             num_patches = patches_at_res.size(-1)
 
-            patches_at_res = rearrange(patches_at_res, "b (c ph pw) np -> (b np) c ph pw", 
-                                       c=channels, ph=self.patch_size, pw=self.patch_size)
+            patches_at_res = patches_at_res.view(batch_size, channels, self.patch_size, self.patch_size, num_patches)
+            patches_at_res = patches_at_res.permute(0, 4, 1, 2, 3)
             # Sample a subset of patches if needed
             if self.max_patches_per_res and num_patches > self.max_patches_per_res:
                 selected_indices = torch.randperm(num_patches)[:self.max_patches_per_res]
@@ -43,7 +43,9 @@ class MultiResolutionPatches:
             patches.append(patches_at_res)
         
         # Concatenate patches from all resolutions
-        patches = torch.cat(patches, dim=0)
+        patches = torch.cat(patches, dim=1)
+        batch_size, num_patches_tot, channels, ph, pw = patches.shape
+        patches = patches.reshape(batch_size * num_patches_tot, channels, ph, pw)
         return patches
 
     def __call__(self, image):
